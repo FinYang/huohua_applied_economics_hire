@@ -1,0 +1,367 @@
+---
+title: "Huohua Siwei Mock Project (Applied Economist Position)"
+author: Yangzhuoran Fin Yang (Monash University)
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::pdf_document2:
+    toc: no
+    keep_tex: yes
+references:
+ - id: cleveland1984graphical
+   title: "Graphical perception: Theory experimentation and application to the development of graphical methods"
+   author: 
+    - family: Cleveland 
+      given: William S 
+    - family: McGill 
+      given: Robert
+   journal: Journal of the American statistical association
+   volume: 79
+   number: 387
+   pages: 531-554
+   issued:
+     year: 1984
+   publisher: Taylor \& Francis Group 
+ - id: bostock2009protovis
+   title: "Protovis: A graphical toolkit for visualization"
+   author: 
+    - family: Bostock 
+      given: Michael 
+    - family: Heer 
+      given: Jeffrey
+   journal: IEEE transactions on visualization and computer graphics
+   volume: 15
+   number: 6
+   pages: 1121-1128
+   issued:
+     year: 2009
+   publisher: IEEE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE, 
+                      warning = FALSE, 
+                      cache = FALSE)
+```
+
+# Introduction
+
+In online education, trail classes have been offered to potential customers (parents and kids) in an attempt to increase sales. The probability of making a sale after such a trial class has been known as the conversion rate. In the study of conversion, likelihood labels have been assigned to students based on their estimated conversion rate. The action of putting video feeds of students who are most likely to make purchases in the middle of the screen can be made by the presenter. The presenter shifts focus to and make possible eye contact with the middle of the screen. 
+
+This project attempts to study the effect of two variables on conversion: showing labels of the likelihood of purchase to the presenter (`is_show`) and sorting students in such an order that the most likely purchasers are put in the centre of attention (`is_sort`). Possible explanations of the mechanism are discussed. Further application of labelling and sorting, and experimental design to assess the effectiveness are proposed.   
+
+The rest of the report is structured as follows. Section \@ref(data) introduces the data and experimental design. Section \@ref(effects-of-labelling-and-sorting) analyses the relationships between conversion and label showing and sorting. Section \@ref(possible-mechanism) discusses possible rationales of the relationship. Section \@ref(further-application) proposes further applications of label-showing and sorting as well as possible assessments of the effectiveness of such application. Section \@ref(summary) makes a brief summary.
+
+The following packages have been used in this report:
+```{r library}
+# For data analysis
+library(tidyverse)
+library(DescTools)
+library(margins)
+library(boot)
+# For compilation and presentation
+library(bookdown)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+```
+
+
+# Data
+
+```{r data}
+unzip("dataset.zip")
+data_a <- read_csv("data_set_a.csv") 
+data_b <- read_csv("data_set_b.csv")
+```
+
+The data has been provided in two different sets, A and B. There are `r nrow(data_a)` observations in data set A where the students were not selected to participate in the experiment. Thus no label-showing or sorting has been made to observations in set A, whereas in data set B of `r nrow(data_b)` observations, students have been assigned to four groups with equal probability: with labelling and with sorting, with labelling but with no sorting, with sorting but no labelling, and no labelling or sorting.
+
+
+The definition of variables can be found in Table \@ref(tab:def). The middle portion of all the seats (video feeds) is known as king kong seats as the presenter puts more attention to this part of students. The likelihood labels are assigned to students based on their estimated conversion rate from most likely to least likely. For classes where seats have been sorted, students with the most likely label (P4) have been put in the middle, surrounded by students with the second most likely label (P3), then third likely (P2) and least likely (P1).
+
+```{r def, echo = FALSE}
+data.frame(names = gsub("_", "\\\\_", colnames(data_b)), 
+           defs = kableExtra::linebreak(c("Student ID", 
+                              "Class ID", 
+                              "Index of position of video feeds", 
+                              "Whether the video feeds are in the middle of the\n screen, known as king kong seats", 
+                              "Estimated conversion rate", 
+                              "Likelihood label of conversion", 
+                              "Whether conversion is made", 
+                              "Whether video feeds have been sorted", 
+                              "Whether the label has been shown to the presenter")),
+           values = kableExtra::linebreak(c("Integer", 
+                                "Integer", 
+                                "Row index and column index of seats,\n e.g. first row first seat 1-1", 
+                                "1 for Yes, 0 for No", 
+                                "Numerical value between 0 and 1", 
+                                "P1 to P4 from least likely to most likely", 
+                                "1 for Yes, 0 for No", 
+                                "1 for Yes, 0 for No", 
+                                "1 for Yes, 0 for No"), align = "l")) %>% 
+  knitr::kable(col.names = c("Variable name", "definition", "Possible values"), 
+               caption = "Variable definition", 
+               escape = FALSE)
+```
+
+
+# Effects of Labelling and Sorting
+
+## Quick Independence Tests
+
+Before we consider the influences from other control variables, let us examine the simple correlation between the treatments (labelling and sorting) and conversion. We will be focusing on data set B for this part of the analysis. The frequency of having a conversion with labelling or sorting is shown in Figure \@ref(fig:freq-plot). Visually, on the left of Figure \@ref(fig:freq-plot), having the label shown to the presenter makes little difference to whether the customer converts or not. On the right, while the numbers of conversion with sorting and without sorting are similar, the number of non-conversion with sorting is smaller than that without sorting, which indicates a possible correlation.
+
+```{r freq-plot, fig.cap="Balloon plot of frequencies of labelling and sorting with reaspect to conversion.", fig.height=3, echo = FALSE}
+p_show <- data_b %>% 
+  select(is_show, is_pay) %>% 
+  group_by(is_show, is_pay) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  mutate(across(!count, as.factor)) %>% 
+  ggplot(mapping = aes(x=is_show, y=is_pay)) +
+  geom_point(aes(size = count), colour = "black", shape = 21, fill = "#FFF8DC") +
+  scale_size_area(max_size = 20, guide = FALSE) +
+  geom_text(aes(
+    y = as.numeric(as.factor(is_pay)) - sqrt(count)/140, label = count),
+    vjust = 1.3,
+    colour = "grey60",
+    size = 4
+  )
+
+p_sort <- data_b %>% 
+  select(is_sort, is_pay) %>% 
+  group_by(is_sort, is_pay) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  mutate(across(!count, as.factor)) %>% 
+  ggplot(mapping = aes(x=is_sort, y=is_pay)) +
+  geom_point(aes(size = count), colour = "black", shape = 21, fill = "#FFF8DC") +
+  scale_size_area(max_size = 20, guide = FALSE) +
+  geom_text(aes(
+    y = as.numeric(as.factor(is_pay)) - sqrt(count)/140, label = count),
+    vjust = 1.3,
+    colour = "grey60",
+    size = 4
+  )
+
+grid.arrange(p_show, p_sort, nrow = 1)
+```
+
+Two tests of independence between labelling and conversion and between sorting and conversion are conducted. Results are shown below. With a huge p-value, we cannot reject the null hypothesis that both labelling and sorting are independent with conversion, so this is another indication that they may be not correlated. 
+
+```{r chi-test, echo = FALSE}
+# Test between is_show and is_pay
+cat("Test of independence between labelling and conversion")
+data_b %>% 
+  select(is_show, is_pay) %>% 
+  group_by(is_show, is_pay) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  mutate(across(!count, as.factor)) %>% 
+  pivot_wider(names_from = is_pay, values_from = count) %>% 
+  select(-is_show) %>% 
+  chisq.test()
+
+cat(paste0(rep("-", 40), collapse = ""), "\n")
+# Test between is_sort and is_pay
+cat("Test of independence between sorting and conversion")
+data_b %>% 
+  select(is_sort, is_pay) %>% 
+  group_by(is_sort, is_pay) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  mutate(across(!count, as.factor)) %>% 
+  pivot_wider(names_from = is_pay, values_from = count) %>% 
+  select(-is_sort) %>% 
+  chisq.test()
+```
+## Direct effect {#de}
+
+We can examine the direct effect of labelling and sorting by applying a logistic (logit) regression with conversion being the regressand, and two treatment variables and all other control variables being regressors. The result has been shown below. For the control variables I have included the estimated conversion rate (`prob`) and combinations of interaction between being in king kong seats (`is_king_kong`) and likelihood label (`tag`).
+
+```{r direct-logit}
+data_b %>% 
+  glm(is_pay ~is_show + is_sort + prob + is_king_kong*tag,
+      family = binomial(link = "logit"),
+      data = .) %>% 
+  summary() 
+```
+In this logit model, the main contribution of variation in conversion comes from having a label indicating a high conversion rate (`tagp4` or `tagp3`), and having a label with a medium conversion rate and being in the king kong seats (interaction between `is_king_kong` and `tagp2` or `tagp3`). This can be seen by a small p-value indicating significant coefficients of corresponding regressors. The treatment variables of interest (`is_show` and `is_sort`), however, are insignificant in the determination of conversion with a large p-value. Although the coefficient is positive, we do not have enough evidence to say labelling or sorting has a positive effect on conversion. There is no significant direct effect of labelling on conversion. This conclusion is consistent with preliminary analysis using plots and tests of independence.
+
+Applications with a probit model and a probability linear regression yield the same conclusion.
+
+## Interactions
+
+With no direct effects implied by the above analysis, I also considered possible indirect effects of labelling and sorting. Will labelling increase the positive effects created by being in the king kong seats? The presenter of the class may put different attention to students in king kong seats with different labels. Another possibility is a high likelihood label may benefit from being shown to the presenter, but not so much for a low likelihood label. This idea is examined using a logit model below with interactions between being in king kong seats (`is_king_kong`), labels (`tag`), and showing labels to the presenter (`is_show`). Unfortunately, none of the terms involving label-showing has any statistical significance. The assumption is not supported.
+
+```{r inter-show}
+data_b %>% 
+  glm(is_pay ~ is_king_kong*tag*is_show + is_sort + prob,
+      family = binomial(link = "logit"),
+      data = .) %>% 
+  summary()
+```
+
+A similar analysis is conducted on the interaction of sorting, king kong seats, and likelihood labels using a logit regression below. The hypothesis in such a scenario is a certain level of likelihood may benefit more from having the seats sorted. Again, no term involving sorting appears to have any significance.
+
+
+```{r inter-sort}
+data_b %>% 
+  glm(is_pay ~ is_king_kong*tag*is_sort + is_show + prob,
+      family = binomial(link = "logit"),
+      data = .) %>% 
+  summary()
+```
+## Conclusion
+
+After examination of both direct and indirect effects from labelling and sorting, no correlation between labelling and sorting, and conversion has been discovered.
+
+
+# Possible Mechanism
+
+Because the data is experimental from a randomised block design where sorting and labelling have an equal chance of being assigned to class without influences from other factors, they are considered as exogenous. That means no unobserved factors in the random components have an impact on both treatment and conversion. Therefore, the above regression analysis is valid with a consistent estimation of the true effects of treatment.
+
+I consider three possible reasons for the inconsequential roles of labelling and sorting:
+
+1. In the estimation of conversion rate, which can be represented by variable `prob` and consequently `tag`, elements that contribute to the majority of the variation of conversion have been included. Some of those elements that contribute to the variation of conversion are also what drives the effects of labelling and sorting. From this perspective, the insignificance of labelling and sorting is a result of underlying factors being covered in the estimated conversion rate.
+1. The majority of impacts from labelling comes from that of sorting, which then is included in the effect of king kong seats. In many classes, being in the king kong seats is a result of sorting by likelihood labels. Sorting contributes to conversion indirectly by putting students in king kong seats.
+1. Little variation in conversion can be explained or predicted by observed variables.
+
+Starting with the first possible reason, because the algorithm producing the estimated conversion rate is unknown, no theoretical or analytical analysis can be made on the underlying factors. Instead, the explanatory power of the estimated conversion rate represented by likelihood labels is examined. The average marginal effect (AME) of likelihood labels (`tag`) in a logit model using data set A with only the labels as regressor is calculated in Table \@ref(tab:ame). The labels rather than the estimated probability itself is used for better interpretability. With a baseline of P1 tag, having a tag of P4 increases the probability of conversion by 0.15, which is not small in probability terms. This is an indication of the strong explanatory power of the estimated conversion rate.
+
+
+
+```{r ame, echo = FALSE}
+capture.output(
+  glm(is_pay ~  tag,
+      family = binomial(link = "logit"),
+      data = data_a) %>% 
+    margins(data = data_a) %>% 
+    print()
+)  %>% 
+  str_squish() %>% 
+  str_split(" ") %>% 
+  as.data.frame() %>% 
+  as.matrix() %>% 
+  `colnames<-`(NULL) %>% 
+  kable(caption = "Average marginal effects of estimated conversion rate represented using labels.")
+
+```
+
+In the second possible reason, king kong seats serve as a proxy of labelling and sorting. I have regressed king kong seats on estimated conversion rate and interaction between likelihood labels, sorting, and label showing using a logit model. The result is shown below. In this model, whether the student is in a king kong seat can be affected by sorting, especially when the student has a high likelihood label (P3 or P4), which can be seen from the significant coefficients of interaction between P3 or P4 tag and sorting. This is expected: this is exactly what sorting is meant to do.
+
+```{r y-kingkong}
+data_b %>% 
+  glm(is_king_kong ~ tag*is_sort*is_show + prob,
+      family = binomial(link = "logit"),
+      data = .) %>% 
+  summary()
+```
+
+With the effect of sorting on king kong seats being established, I would like to test the (indirect) effect of sorting on conversion by only regressing the conversion on labelling and sorting in the model below. After removing king kong seats from the regressors along with the estimated conversion rate, any impact made by those variables is now included in label-showing and sorting. While labelling and sorting are still not significant on the 5% level, labelling is significant on the 10% level and the coefficient of sorting has a p-value of 0.126: close enough to the 10% level. This is, to some extent, supportive of reason 2 and 1: the effects of labelling and sorting are covered by king kong seats and the model estimating conversion rate.
+
+```{r only-showingsorting}
+data_b %>% 
+  glm(is_king_kong ~ is_show + is_sort,
+      family = binomial(link = "logit"),
+      data = .) %>% 
+  summary()
+```
+
+
+Now it comes down to the third possible reason: maybe our attempt of using those observed data to explain conversion is futile after all. There may be many factors making a difference to conversion that can not be captured or recorded, for example, the wealth of a family and the occupations of the parents. It is likely that the observed data can only account for a minimal portion of the variation in conversion. Sadly, in the model analysing the direct effect (Section \@ref(de)),  this is suggested by the pseudo goodness of fit, a mere 0.07. A value this small indicates the model is not so useful in explaining the variation in conversion.
+
+```{r direct-logit-r2}
+data_b %>% 
+  glm(is_pay ~ is_show + is_sort + prob + is_king_kong*tag,
+      family = binomial(link = "logit"),
+      data = .) %>% 
+  PseudoR2() 
+```
+
+A 10-fold cross-validation of the same model is also indicative of such a conclusion with an error rate that is as huge as 0.91. Although a logit model is not known for its accuracy, an error rate of 0.91 is still rather unacceptable: randomly guessing the outcome of conversion can do better than this model.
+
+```{r cv}
+# 10 fold cross validationn
+error_rate <- data_b %>% 
+  glm(is_pay ~ is_show + is_sort + prob + is_king_kong*tag,
+      family = binomial(link = "logit"),
+      data = .) %>% 
+  cv.glm(data_b, 
+         glmfit = ., 
+         cost = function(obs, fitted){
+           sum(obs== as.numeric(fitted>=0.5))/length(obs)
+         }, 
+         K=10) 
+{cat("10 Fold Cross Validation Error Rate\n")
+cat(error_rate$delta[[1]])}
+
+
+```
+# Further application 
+
+## New Sorting Method {#ns}
+
+The idea is from an observation of the logit model in Section \@ref(de). The output of the model is again printed here.
+
+```{r direct-logit-2}
+data_b %>% 
+  glm(is_pay ~is_show + is_sort + prob + is_king_kong*tag,
+      family = binomial(link = "logit"),
+      data = .) %>% 
+  summary() 
+```
+
+Notice the interaction terms of king kong seats and tag P2 and P3 have quite significant positive coefficients. With the baseline being tag P1, this suggests being in the king kong seats is rather beneficial to increase the chance of conversion for students with medium likelihood tags (P2 and P3), compared to P1. This is not true for students who have a high likelihood tag of P4: the coefficient of interaction between king kong seats and tag P4 is not significant, so being in the king kong seats will be the same to P1 and P4 students. 
+
+The original method sorts students from the middle to the outer circle by their likelihood label. The more likely they make a purchase, the closer they are to the middle of the screen. But the observation on the behaviour of the interaction terms suggests a different method of sorting compared to what has been done up to this point. Since having a P4 tag may be indifferent to being in the king kong seats or not, putting students with a P2 or P3 tag to the middle of the screen may result in a better conversion rate overall. The order of tags based on this sorting method would be P3, P2, P4, and P1, from the middle to the outer circle.
+
+Under this new definition of sorting, the analysis in this report can be done similarly and randomised block design can be produced the same way:
+
+1. Showing labels in half of the classes, where the classes are selected randomly;
+1. Sorting using this new method in half of the classes which are selected randomly.
+
+The analysis of the explanatory power of this new sorting method on conversion can be evidential to the usefulness of new sorting. Conducting the same experiment with sorting of different orders of labels can help to find the best sorting order.
+
+## Coloured Labels
+
+The purpose of the likelihood label is to attract the presenter's attention so they will focus on students who are more likely to make purchases in order to increase the conversion rate. The appearance of labels implemented for now is not different from other indicative information in an online class interface, which can only attract a limited amount of attention, especially when the presenter is focused mainly on teaching and delivery of the materials. 
+
+It is a general rule in visualisation that colours are pre-attentive: they attract attention before the reader even realise it (see @cleveland1984graphical and @bostock2009protovis among others). The same might be applied to user interface design. This feature of colour can be applied to draw the presenter's attention to the likelihood label. Colours with high saturation and high temperature (e.g. red and yellow) can be set to labels that need more attention to increase the chance of having a conversion. Under the assumption that more attention on students with a high likelihood to purchase can help with conversion rate, we can highlight tag P4 to P1 with colours from most saturated to least saturated. If it is the case discovered from interaction term in regression in Section \@ref(ns), i.e. attention resulted from colours works better with medium likelihood tags (P3 and P2) the same way king kong seats works with them, then we can set P3 to have the most saturated colours, followed by P2, P4, and P1.
+
+The power of colour on labels can be examined by adding another sampling group to label-showing and sorting in the randomised block design: adding colours in one of two ways mentioned above to half of the classes which are chosen randomly. The same analysis in this paper then can be applied similarly to test the effect of adding colours and to determine what is the best format of colouring.
+
+# Summary
+
+In this paper, I conclude that showing likelihood labels of purchase to the presenter and sorting students from the most likely purchaser to least likely have little impact to conversion, either directly or indirectly. Possible reasons have been discussed.
+
+Further application of using a different sorting method to shift the presenter's attention to more needed students and adding colours to labels are proposed. Experiments testing the power of such applications are suggested.
+
+
+\pagebreak
+# Appendix: Comments on the Inconsistency {-}
+
+## Variable description {-}
+
+In the project instruction, the user ID has been indicated as `user_id`, while in the data set it is actually `uid`. The same goes for classroom ID of `classroom_id` in the instruction and `cr_id` in the data set.
+
+## Imbalanced Randomised Block Design {-}
+
+In data set B, the number of observations in different blocks is shown in Table \@ref(tab:imb). It does not strictly follow a randomised block design with an equal probability of being in each block.   
+
+```{r imb, echo = FALSE}
+matrix(c("", "Not Sorted", "Sorted", 
+         "Label Not Shown", 693, 811, 
+         "Label shown", 854, 606), 
+       byrow = TRUE, nrow = 3) %>% 
+  kable(caption = "Number of observations in different block of randomised block design") %>%
+  kable_styling(latex_options = "hold_position")
+```
+
+## Number of Tags {-}
+
+In the project instruction, three tags are specified whereas in the data set there are four: P1, P2, P3, and P4.
+
+\pagebreak
+# References {-}
